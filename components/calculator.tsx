@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { SETS } from "@/lib/sets-data"
 import type { Card, BoosterType, SetInfo } from "@/lib/sets-data"
 import {
@@ -57,38 +57,85 @@ function getRarityColor(rarity: string): string {
 }
 
 export function Calculator() {
-  const [selectedSetCode, setSelectedSetCode] = useState<string>(SETS[0].code)
+  const [selectedSetCode, setSelectedSetCode] = useState<string>(
+    SETS.find((set) => set.code === "TLA")?.code ?? SETS[0].code
+  )
   const [selectedCardName, setSelectedCardName] = useState<string>("")
   const [selectedBoosterId, setSelectedBoosterId] = useState<string>("")
   const [numBoosters, setNumBoosters] = useState<number>(36)
   const [cardSearch, setCardSearch] = useState<string>("")
+  const [packPrices, setPackPrices] = useState<Record<string, string>>({})
+  const [cardsBySet, setCardsBySet] = useState<Record<string, Card[]>>({})
+  const [isLoadingCards, setIsLoadingCards] = useState(false)
+  const [cardLoadError, setCardLoadError] = useState<string | null>(null)
 
   const selectedSet: SetInfo | undefined = useMemo(
     () => SETS.find((s) => s.code === selectedSetCode),
     [selectedSetCode]
   )
 
+  const availableCards = selectedSet
+    ? selectedSet.cards.length > 0
+      ? selectedSet.cards
+      : cardsBySet[selectedSet.code] ?? []
+    : []
+
+  useEffect(() => {
+    if (!selectedSet || selectedSet.cards.length > 0 || cardsBySet[selectedSet.code]) return
+
+    let cancelled = false
+    setIsLoadingCards(true)
+    setCardLoadError(null)
+
+    fetch(`/api/sets/${selectedSet.code}/cards`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load this set's card catalog.")
+        return (await response.json()) as Card[]
+      })
+      .then((cards) => {
+        if (!cancelled) setCardsBySet((current) => ({ ...current, [selectedSet.code]: cards }))
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setCardLoadError(error instanceof Error ? error.message : "Could not load this set's card catalog.")
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingCards(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedSet, cardsBySet])
+
   const filteredCards = useMemo(() => {
     if (!selectedSet) return []
-    if (!cardSearch.trim()) return selectedSet.cards
+    if (!cardSearch.trim()) return availableCards
     const search = cardSearch.toLowerCase()
-    return selectedSet.cards.filter(
+    return availableCards.filter(
       (c) =>
         c.name.toLowerCase().includes(search) ||
         c.rarity.toLowerCase().includes(search) ||
         c.treatment.toLowerCase().includes(search)
     )
-  }, [selectedSet, cardSearch])
+  }, [selectedSet, availableCards, cardSearch])
 
   const selectedCard: Card | undefined = useMemo(
-    () => selectedSet?.cards.find((c) => c.name === selectedCardName),
-    [selectedSet, selectedCardName]
+    () => availableCards.find((c) => c.name === selectedCardName),
+    [availableCards, selectedCardName]
   )
 
   const selectedBooster: BoosterType | undefined = useMemo(
     () => selectedSet?.boosters.find((b) => b.id === selectedBoosterId),
     [selectedSet, selectedBoosterId]
   )
+  const packPriceInput = selectedBooster ? packPrices[selectedBooster.id] ?? "" : ""
+  const packPriceValue = packPriceInput.trim() === "" ? null : Number(packPriceInput)
+  const packPrice =
+    packPriceValue !== null && Number.isFinite(packPriceValue) && packPriceValue >= 0
+      ? packPriceValue
+      : null
 
   // Auto-select first booster when set changes
   const handleSetChange = (code: string) => {
@@ -123,9 +170,9 @@ export function Calculator() {
   }, [selectedCard, selectedBooster])
 
   const expectedTotalCost = useMemo(() => {
-    if (!selectedCard || !selectedBooster) return null
-    return expectedCost(selectedCard, selectedBooster)
-  }, [selectedCard, selectedBooster])
+    if (!selectedCard || !selectedBooster || packPrice === null) return null
+    return expectedCost(selectedCard, selectedBooster, packPrice)
+  }, [selectedCard, selectedBooster, packPrice])
 
   const chartData = useMemo(() => {
     if (!selectedCard || !selectedBooster) return []
@@ -133,7 +180,7 @@ export function Calculator() {
     return probabilityCurve(selectedCard, selectedBooster, maxN)
   }, [selectedCard, selectedBooster, numBoosters])
 
-  const totalCost = numBoosters * (selectedBooster?.price ?? 0)
+  const totalCost = packPrice === null ? null : numBoosters * packPrice
 
   const hasResults = selectedCard && selectedBooster && perBoosterProb > 0
 
@@ -181,13 +228,63 @@ export function Calculator() {
               <SelectContent>
                 {selectedSet?.boosters.map((b) => (
                   <SelectItem key={b.id} value={b.id}>
-                    {b.name} (${b.price})
+                    {b.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
         </div>
+
+        {selectedSet?.oddsSourceUrl && (
+          <div className="mt-4 flex flex-col gap-1 text-xs text-muted-foreground">
+            {selectedSet.oddsNotes && <p>{selectedSet.oddsNotes}</p>}
+            <a
+              href={selectedSet.oddsSourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="w-fit underline text-primary hover:text-primary/80"
+            >
+              Official Wizards odds source
+            </a>
+            <a
+              href={`https://scryfall.com/sets/${selectedSet.code.toLowerCase()}`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-fit underline text-primary hover:text-primary/80"
+            >
+              Card catalog via Scryfall
+            </a>
+          </div>
+        )}
+
+        {selectedBooster && (
+          <div className="mt-6 flex max-w-xs flex-col gap-2">
+            <Label htmlFor="pack-price" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Pack Price (USD)
+            </Label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+              <Input
+                id="pack-price"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                placeholder="Enter price per booster"
+                value={packPriceInput}
+                onChange={(event) =>
+                  setPackPrices((prices) => ({
+                    ...prices,
+                    [selectedBooster.id]: event.target.value,
+                  }))
+                }
+                className="bg-secondary border-border pl-7 text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">Used for cost estimates; booster odds are unchanged.</p>
+          </div>
+        )}
 
         {/* Card Search & Select */}
         {selectedSet && (
@@ -205,7 +302,15 @@ export function Calculator() {
               />
             </div>
             <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border bg-secondary">
-              {filteredCards.length === 0 ? (
+              {isLoadingCards ? (
+                <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  Loading card catalog...
+                </p>
+              ) : cardLoadError ? (
+                <p role="alert" className="px-4 py-8 text-center text-sm text-destructive">
+                  {cardLoadError}
+                </p>
+              ) : filteredCards.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-muted-foreground">
                   No cards found
                 </p>
@@ -300,7 +405,7 @@ export function Calculator() {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
                   icon={Percent}
-                  label="Chance with selected"
+                  label="Chance from modeled slots"
                   value={`${(currentProb * 100).toFixed(2)}%`}
                   sub={`After ${numBoosters} booster${numBoosters !== 1 ? "s" : ""}`}
                   variant="primary"
@@ -319,14 +424,14 @@ export function Calculator() {
                       ? `$${expectedTotalCost.toFixed(2)}`
                       : "N/A"
                   }
-                  sub="At MSRP"
+                  sub="Based on your pack price"
                   variant="accent"
                 />
                 <StatCard
                   icon={TrendingUp}
                   label="Cost for selected"
-                  value={`$${totalCost.toFixed(2)}`}
-                  sub={`${numBoosters} x $${selectedBooster.price}`}
+                  value={totalCost !== null ? `$${totalCost.toFixed(2)}` : "Enter price"}
+                  sub={packPrice !== null ? `${numBoosters} x $${packPrice.toFixed(2)}` : "Enter a pack price above"}
                 />
               </div>
 
@@ -334,13 +439,13 @@ export function Calculator() {
               <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3">
                 <div className="h-2 w-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">
-                  Each {selectedBooster.name} has a{" "}
+                  The modeled slots in each {selectedBooster.name} give this printing a{" "}
                   <span className="font-mono font-semibold text-foreground">
                     {perBoosterProb < 0.0001
                       ? `${(perBoosterProb * 100).toFixed(4)}%`
                       : `${(perBoosterProb * 100).toFixed(2)}%`}
                   </span>{" "}
-                  chance of containing{" "}
+                  chance of appearing: {""}
                   <span className="font-semibold text-foreground">
                     {selectedCard.name}
                   </span>
@@ -365,7 +470,7 @@ export function Calculator() {
               </div>
 
               {/* Milestones */}
-              <ProbabilityMilestones card={selectedCard} booster={selectedBooster} />
+              <ProbabilityMilestones card={selectedCard} booster={selectedBooster} packPrice={packPrice} />
 
               {/* Verdict */}
               <VerdictCard
@@ -390,7 +495,7 @@ function VerdictCard({
 }: {
   currentProb: number
   numBoosters: number
-  totalCost: number
+  totalCost: number | null
   cardName: string
 }) {
   const isGoodOdds = currentProb >= 0.5
@@ -410,7 +515,7 @@ function VerdictCard({
         {isGoodOdds ? "Decent Odds" : "Risky Pull"}
       </h3>
       <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
-        Buying {numBoosters} booster{numBoosters !== 1 ? "s" : ""} for ${totalCost.toFixed(2)} gives
+        Buying {numBoosters} booster{numBoosters !== 1 ? "s" : ""}{totalCost !== null ? ` for $${totalCost.toFixed(2)}` : ""} gives
         you a{" "}
         <span className="font-semibold text-foreground">
           {(currentProb * 100).toFixed(1)}%

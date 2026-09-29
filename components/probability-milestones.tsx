@@ -5,6 +5,7 @@ import { Target, Check, ChevronRight } from "lucide-react"
 interface ProbabilityMilestonesProps {
   card: Card
   booster: BoosterType
+  packPrice: number | null
 }
 
 const MILESTONES = [
@@ -16,7 +17,7 @@ const MILESTONES = [
   { target: 0.99, label: "99%" },
 ]
 
-export function ProbabilityMilestones({ card, booster }: ProbabilityMilestonesProps) {
+export function ProbabilityMilestones({ card, booster, packPrice }: ProbabilityMilestonesProps) {
   return (
     <div className="rounded-lg border border-border bg-card">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
@@ -28,7 +29,7 @@ export function ProbabilityMilestones({ card, booster }: ProbabilityMilestonesPr
       <div className="divide-y divide-border">
         {MILESTONES.map(({ target, label }) => {
           const needed = boostersNeededForProbability(card, booster, target)
-          const cost = needed !== null ? needed * booster.price : null
+          const cost = needed !== null && packPrice !== null ? needed * packPrice : null
           return (
             <div
               key={target}
@@ -50,9 +51,11 @@ export function ProbabilityMilestones({ card, booster }: ProbabilityMilestonesPr
                   <span className="text-xs text-muted-foreground">
                     boosters
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {'('}~${cost!.toFixed(2)}{')'}
-                  </span>
+                  {cost !== null && (
+                    <span className="text-xs text-muted-foreground">
+                      {'('}~${cost.toFixed(2)}{')'}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <span className="text-xs text-muted-foreground italic">

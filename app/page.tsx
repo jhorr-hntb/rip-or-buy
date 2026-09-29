@@ -1,6 +1,5 @@
 import { Calculator } from "@/components/calculator";
 import { SiteHeader } from "@/components/site-header";
-import Link from "next/link";
 
 export default function Home() {
   return (
@@ -12,16 +11,7 @@ export default function Home() {
             Should you rip packs or buy singles?
           </h2>
           <p className="mt-2 text-sm text-muted-foreground leading-relaxed max-w-xl">
-            Select a card you want, choose a booster type, and see the real
-            probabilities based on{" "}
-            <Link
-              href="https://magic.wizards.com/en/news/feature/collecting-avatar-the-last-airbender#TLAProductDetails"
-              target="_blank"
-              className="underline text-primary hover:text-primary/80 transition-colors"
-            >
-              official Wizards of the Coast drop rates
-            </Link>
-            . Adjust the number of boosters to see how your chances change.
+            Choose a set and booster, target a card, and compare your odds against the pack price you enter.
           </p>
         </div>
         <Calculator />

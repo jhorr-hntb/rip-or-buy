@@ -58,7 +58,7 @@ export function probabilityPerBooster(card: Card, booster: BoosterType): number 
         pSlot += outcome.probability * (1 / outcome.poolSize)
       }
     }
-    probMiss *= 1 - pSlot
+    probMiss *= (1 - pSlot) ** (slot.quantity ?? 1)
   }
 
   return 1 - probMiss
@@ -129,8 +129,8 @@ export function expectedBoosters(card: Card, booster: BoosterType): number | nul
 /**
  * Expected cost to pull at least one copy.
  */
-export function expectedCost(card: Card, booster: BoosterType): number | null {
+export function expectedCost(card: Card, booster: BoosterType, packPrice: number): number | null {
   const e = expectedBoosters(card, booster)
   if (e === null) return null
-  return e * booster.price
+  return e * packPrice
 }
